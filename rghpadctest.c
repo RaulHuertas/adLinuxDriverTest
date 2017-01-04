@@ -6,8 +6,16 @@
 #include <stdint.h>
 #include <sys/mman.h>
 #include "adcLinuxDriverAPI.h"
+// api udp
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/uio.h>
 
-// The start address and length of the Lightweight bridge
+
 
 
 int main(int argc, char ** argv)
@@ -34,20 +42,6 @@ int main(int argc, char ** argv)
         exit(EXIT_FAILURE);
     }
 
-    
-
-//    printf("Captura ADC\n\n");
-//    for(i=0;i<20;i++){
-//        res = ioctl(adcFile, RGHPADC_LEEARVALORADC, &valorLeido);
-//        if(res!=0){
-//            printf("Error leyend datos %d\n", res);
-//                break;
-//        }
-//        printf("\rDato leido: %x         ", valorLeido);
-//        fflush(stdout);
-//        usleep(500000);
-//    }
-//    printf("\nFin captura bloqueante ADC\n");
     res = ioctl(adcFile, RGHPADC_CAMBIAR_PUERTO, &canalElegido);
     if(res!=0){
         printf("Error configurando el canal a usar:  %d\n", res);
@@ -73,6 +67,8 @@ int main(int argc, char ** argv)
     printf("RGHPADC_DIMTOTAL : %d\n", dimensionLecturaTotal);
 
 
+    int sizeMask = (dimensionLecturaTotal-1);
+    printf("mascaradeDatos : %x\n", sizeMask);
     bufferMM = mmap(0, dimensionLecturaTotal, PROT_READ, MAP_PRIVATE, adcFile, 0);
 
 
@@ -89,7 +85,8 @@ int main(int argc, char ** argv)
 
 
 
-    for(i=0;i<10000;i++){
+    int desplazamiento = 0;
+    for(paquetesLeidos=0;paquetesLeidos<100;){
         res = read(adcFile, 0, dimensionLecturaRecomendada);
         if(res<0){
             printf("Error leyend datos %d\n", res);
@@ -97,12 +94,22 @@ int main(int argc, char ** argv)
         }
         if(res!=0){
             paquetesLeidos++;
-            printf("\rPaquetes leidos: %d            ", paquetesLeidos);
-        }
+            printf("Paquetes leidos: %d\r\n", paquetesLeidos);
+            char* nuevosDatos = bufferMM+desplazamiento;
+            unsigned short* ultimosDatosLeidos = (unsigned short*)(nuevosDatos);
+            unsigned short ultimoDatoLeido = *ultimosDatosLeidos;
+            printf("Primer dato del ultimo paquete leido: %x\r\n", (int)ultimoDatoLeido);
+            //transmitir los datos por UDP
 
+
+            desplazamiento+=dimensionLecturaRecomendada;
+            desplazamiento&=sizeMask;
+        }
         fflush(stdout);
         usleep(5000);
     }
+
+    munmap(bufferMM, dimensionLecturaTotal);
 
     printf("Prueba finalizada\n");
     close(adcFile);
