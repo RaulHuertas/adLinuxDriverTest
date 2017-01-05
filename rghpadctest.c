@@ -14,13 +14,23 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/uio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
 
+int dimensionDeEnvio = 1024;
 
+void errorPrograma(char *msg) {
+    perror(msg);
+    exit(0);
+}
 
 
 int main(int argc, char ** argv)
 {
-	int i;
+    //variables de la captura
+    int i;
     int adcFile;
     unsigned int valorLeido = 0;
     int res;
@@ -29,12 +39,25 @@ int main(int argc, char ** argv)
     int dimensionLecturaTotal;
     int paquetesLeidos = 0;
     char* bufferMM = 0;
-    if(argc!=2){
-            printf("Se necesita saber que canal desea usar\n");
-            exit(EXIT_FAILURE);
+    //variables UDP
+    int sockfd, portno, n;
+    int serverlen;
+    char *hostname;
+    struct sockaddr_in serveraddr;
+    struct hostent *server;
 
+
+    //COMPROBAR EL NUMERO DE PARAMETROS
+    if(argc!=4){
+        printf("Argumentos del programa invalidos\n");
+        printf("Invocarlo como: rghpadctest <canal> <direccionDestino>  <puertoDestino>\n");
+        exit(EXIT_FAILURE);
     }
+
     canalElegido = atoi(argv[1]);
+    hostname = argv[2];
+    portno = atoi(argv[3]);
+
     // Open up the /dev/mem device (aka, RAM)
     adcFile = open("/dev/rghpadc", O_RDWR);
     if(adcFile < 0) {
@@ -83,10 +106,26 @@ int main(int argc, char ** argv)
         exit(EXIT_FAILURE);
     }
 
+    //ABRIR EL PUERTO UDP
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0){
+            errorPrograma("ERROR abriendo el socket");
+    }
+    server = gethostbyname(hostname);
+    if(server == NULL) {
+        fprintf(stderr,"ERROR, no such host as %s\n", hostname);
+        exit(0);
+    }
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr,
+      (char *)&serveraddr.sin_addr.s_addr, server->h_length);
+    serveraddr.sin_port = htons(portno);
+    serverlen = sizeof(serveraddr);
 
 
     int desplazamiento = 0;
-    for(paquetesLeidos=0;paquetesLeidos<100;){
+    while(1){
         res = read(adcFile, 0, dimensionLecturaRecomendada);
         if(res<0){
             printf("Error leyend datos %d\n", res);
@@ -98,8 +137,23 @@ int main(int argc, char ** argv)
             char* nuevosDatos = bufferMM+desplazamiento;
             unsigned short* ultimosDatosLeidos = (unsigned short*)(nuevosDatos);
             unsigned short ultimoDatoLeido = *ultimosDatosLeidos;
-            printf("Primer dato del ultimo paquete leido: %x\r\n", (int)ultimoDatoLeido);
-            //transmitir los datos por UDP
+            //printf("Primer dato del ultimo paquete leido: %x\r\n", (int)ultimoDatoLeido);
+            //TRANSMITIR DATOS POR UDP
+            char* datosAEnviar = nuevosDatos;
+            int datosEnviados = 0;
+            while(datosEnviados<dimensionLecturaRecomendada){
+                sendto(
+                    sockfd,
+                    datosAEnviar,
+                    dimensionDeEnvio,
+                    0,
+                    &serveraddr,
+                    serverlen
+                );
+                datosAEnviar+=dimensionDeEnvio;
+                datosEnviados+=dimensionDeEnvio;
+            }
+
 
 
             desplazamiento+=dimensionLecturaRecomendada;
