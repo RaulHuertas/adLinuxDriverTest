@@ -43,6 +43,8 @@ int main(int argc, char ** argv)
     int sockfd, portno, n;
     int serverlen;
     char *hostname;
+	char* bufferDeEnvio = 0;
+	int sizeBufferEnvio=0;
     struct sockaddr_in serveraddr;
     struct hostent *server;
 
@@ -81,7 +83,8 @@ int main(int argc, char ** argv)
         exit(EXIT_FAILURE);
     }
     printf("RGHPADC_MEJORDIMLECTURA : %d\n", dimensionLecturaRecomendada);
-
+	sizeBufferEnvio = dimensionDeEnvio + 4;
+	bufferDeEnvio = malloc(sizeBufferEnvio);
     res = ioctl(adcFile, RGHPADC_DIMTOTAL, &dimensionLecturaTotal);
     if(res!=0){
         printf("Error RGHPADC_DIMTOTAL:  %d\n", res);
@@ -93,10 +96,6 @@ int main(int argc, char ** argv)
     int sizeMask = (dimensionLecturaTotal-1);
     printf("mascaradeDatos : %x\n", sizeMask);
     bufferMM = mmap(0, dimensionLecturaTotal, PROT_READ, MAP_PRIVATE, adcFile, 0);
-
-
-
-
 
     printf("Se va a iniciar la captura\n");
     //printf("Revise mensajes del sistema durante 1 minuto\n");
@@ -125,6 +124,8 @@ int main(int argc, char ** argv)
 
 
     int desplazamiento = 0;
+	unsigned int contadorPaquetes = 0;
+	
     while(1){
         res = read(adcFile, 0, dimensionLecturaRecomendada);
         if(res<0){
@@ -133,25 +134,36 @@ int main(int argc, char ** argv)
         }
         if(res!=0){
             paquetesLeidos++;
-            printf("Paquetes leidos: %d\r\n", paquetesLeidos);
+            //printf("Paquetes leidos: %d\r\n", paquetesLeidos);
             char* nuevosDatos = bufferMM+desplazamiento;
-            unsigned short* ultimosDatosLeidos = (unsigned short*)(nuevosDatos);
-            unsigned short ultimoDatoLeido = *ultimosDatosLeidos;
+            //unsigned short* ultimosDatosLeidos = (unsigned short*)(nuevosDatos);
+            //unsigned short ultimoDatoLeido = *ultimosDatosLeidos;
             //printf("Primer dato del ultimo paquete leido: %x\r\n", (int)ultimoDatoLeido);
             //TRANSMITIR DATOS POR UDP
-            char* datosAEnviar = nuevosDatos;
+            //char* datosAEnviar = nuevosDatos;
             int datosEnviados = 0;
             while(datosEnviados<dimensionLecturaRecomendada){
+				memcpy(
+					bufferDeEnvio,
+					&contadorPaquetes,
+					4
+				);
+				memcpy(
+					bufferDeEnvio+4,
+					nuevosDatos,
+					dimensionDeEnvio
+				);
                 sendto(
                     sockfd,
-                    datosAEnviar,
-                    dimensionDeEnvio,
+                    bufferDeEnvio,
+                    sizeBufferEnvio,
                     0,
                     &serveraddr,
                     serverlen
                 );
-                datosAEnviar+=dimensionDeEnvio;
+                nuevosDatos+=dimensionDeEnvio;
                 datosEnviados+=dimensionDeEnvio;
+				contadorPaquetes++;
             }
 
 
@@ -164,7 +176,7 @@ int main(int argc, char ** argv)
     }
 
     munmap(bufferMM, dimensionLecturaTotal);
-
+	free(bufferDeEnvio);
     printf("Prueba finalizada\n");
     close(adcFile);
     exit(EXIT_SUCCESS);
